@@ -16,17 +16,68 @@ import math
 class LabelFileError(Exception):
     pass
 
+def yolo_format(class_index, point_1, point_2, width, height):
+    # YOLO wants everything normalized
+    # Order: class x_center y_center x_width y_height
+    x_center = (point_1[0] + point_2[0]) / float(2.0 * width)
+    y_center = (point_1[1] + point_2[1]) / float(2.0 * height)
+    x_width = float(abs(point_2[0] - point_1[0])) / width
+    y_height = float(abs(point_2[1] - point_1[1])) / height
+    return str(class_index) + " " + str(x_center) \
+       + " " + str(y_center) + " " + str(x_width) + " " + str(y_height)
+
+def save_bb(myfile, line):
+    with open(txt_path, 'a') as myfile:
+        myfile.write(line + "\n") # append line
 
 class LabelFile(object):
     # It might be changed as window creates. By default, using XML ext
     # suffix = '.lif'
     suffix = XML_EXT
 
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, labels = None):
         self.shapes = ()
         self.imagePath = None
         self.imageData = None
         self.verified = False
+
+        self.labels = labels
+
+    def saveYoloFormat(self, annPath, shapes, imagePath, imageData):
+        imgFolderPath = os.path.dirname(imagePath)
+        imgFolderName = os.path.split(imgFolderPath)[-1]
+        imgFileName = os.path.basename(imagePath)
+        imgFileNameWithoutExt = os.path.splitext(imgFileName)[0]
+        # Read from file path because self.imageData might be empty if saving to
+        # Pascal format
+        image = QImage()
+        image.load(imagePath)
+        imageShape = [image.height(), image.width(),
+                      1 if image.isGrayscale() else 3]
+        isRotated_check = None
+        with open(annPath, 'w') as myfile:
+            for shape in shapes:
+                points = shape['points']
+                label = shape['label']
+                # Add Chris
+                difficult = int(shape['difficult'])           
+                direction = shape['direction']
+                isRotated = shape['isRotated']
+                if isRotated_check is None:
+                    isRotated_check = isRotated
+                    
+                assert(isRotated_check == isRotated)
+                
+                # if shape is normal box, save as bounding box 
+                # print('direction is %lf' % direction)
+                bndbox = yolo_format(self.labels[label], points[0], points[1], imageShape[1], imageShape[0])
+                if not isRotated:
+                    save_bb(myfile, bndbox)
+                else: #if shape is rotated box, save as rotated bounding box
+                    save_bb(myfile, bndbox + " " + str(direction))
+
+        writer.save(targetFile=filename)
+        return
 
     def savePascalVocFormat(self, filename, shapes, imagePath, imageData,
                             lineColor=None, fillColor=None, databaseSrc=None):

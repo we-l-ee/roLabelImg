@@ -9,6 +9,9 @@ import subprocess
 from functools import partial
 from collections import defaultdict
 
+
+YOLO_V2 = 1
+
 try:
     from PyQt5.QtGui import *
     from PyQt5.QtCore import *
@@ -84,6 +87,10 @@ class HashableQListWidgetItem(QListWidgetItem):
         return hash(id(self))
 
 
+
+
+
+
 class MainWindow(QMainWindow, WindowMixin):
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = list(range(3))
 
@@ -98,6 +105,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dirname = None
         self.labelHist = []
         self.lastOpenDir = None
+        
+        # Root dir for images and annotations folders.
+        self.rootDir = None
 
         # Whether we need to save or not.
         self.dirty = False
@@ -126,11 +136,29 @@ class MainWindow(QMainWindow, WindowMixin):
         self.useDefautLabelCheckbox = QCheckBox(u'Use default label')
         self.useDefautLabelCheckbox.setChecked(False)
         self.defaultLabelTextLine = QLineEdit()
+
         useDefautLabelQHBoxLayout = QHBoxLayout()       
         useDefautLabelQHBoxLayout.addWidget(self.useDefautLabelCheckbox)
         useDefautLabelQHBoxLayout.addWidget(self.defaultLabelTextLine)
         useDefautLabelContainer = QWidget()
         useDefautLabelContainer.setLayout(useDefautLabelQHBoxLayout)
+
+        # Custom labels annotation save
+        self.labelYoloPath = QLineEdit()
+        self.labelYoloPath.setText(u"labels")
+        self.saveLabelYolo = QPushButton("Save Yolo", self)
+        self.saveLabelYolo.setEnabled(True)
+        self.saveLabelYolo.clicked.connect(self.saveFileYolo)
+
+        # self.saveLabelYolo.addAction()
+        # self.saveLabelYolo.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+
+        LabelPathQHBoxLayout = QHBoxLayout()
+        LabelPathQHBoxLayout.addWidget(self.labelYoloPath)
+        LabelPathQHBoxLayout.addWidget(self.saveLabelYolo)
+
+        labelPathContainer = QWidget()
+        labelPathContainer.setLayout(LabelPathQHBoxLayout)
 
         # Create a widget for edit and diffc button
         self.diffcButton = QCheckBox(u'difficult')
@@ -143,6 +171,7 @@ class MainWindow(QMainWindow, WindowMixin):
         listLayout.addWidget(self.editButton)
         listLayout.addWidget(self.diffcButton)
         listLayout.addWidget(useDefautLabelContainer)
+        listLayout.addWidget(labelPathContainer)
 
         # Create and add a widget for showing current label items
         self.labelList = QListWidget()
@@ -204,6 +233,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dock.setFeatures(self.dock.features() ^ self.dockFeatures)
         self.filedock.setFeatures(self.filedock.features() ^ self.dockFeatures)
 
+
         # Actions
         action = partial(newAction, self)
         quit = action('&Quit', self.close,
@@ -232,6 +262,12 @@ class MainWindow(QMainWindow, WindowMixin):
 
         save = action('&Save', self.saveFile,
                       'Ctrl+S', 'save', u'Save labels to file', enabled=False)
+
+        saveYolo = action('&SaveYolo', self.saveFileYolo,
+                      'Ctrl+x', 'saveYolo', u'Save yolo labels to file', enabled=False)
+
+
+
         saveAs = action('&Save As', self.saveFileAs,
                         'Ctrl+Shift+S', 'save-as', u'Save labels to a different file',
                         enabled=False)
@@ -328,7 +364,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.popLabelListMenu)
 
         # Store actions for further handling.
-        self.actions = struct(save=save, saveAs=saveAs, open=open, close=close,
+        self.actions = struct(save=save, saveYolo=saveYolo, saveAs=saveAs, open=open, close=close,
                               lineColor=color1, fillColor=color2,
                               create=create, createRo=createRo, delete=delete, edit=edit, copy=copy,
                               createMode=createMode, editMode=editMode, advancedMode=advancedMode,
@@ -479,6 +515,16 @@ class MainWindow(QMainWindow, WindowMixin):
 
     ## Support Functions ##
 
+    def saveFileYolo(self):
+        if self.rootDir is not None:
+            imgFileName = os.path.basename(self.filePath)
+            savedFileName = os.path.splitext(imgFileName)[0] + ".txt"
+            savedPath = os.path.join(self.rootDir, str(self.labelYoloPath.text()), savedFileName)
+            # self._saveFile(savedPath)
+            print savedPath
+        else:
+            print "error: open dir."
+
     def noShapes(self):
         return not self.itemsToShapes
 
@@ -522,9 +568,18 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.verified = False
         self.actions.save.setEnabled(True)
 
+        self.actions.saveYolo.setEnabled(True)
+
+        self.saveLabelYolo.setEnabled(True)
+
     def setClean(self):
         self.dirty = False
         self.actions.save.setEnabled(False)
+
+        self.actions.saveYolo.setEnabled(False)
+
+        self.saveLabelYolo.setEnabled(False)
+
         self.actions.create.setEnabled(True)
         self.actions.createRo.setEnabled(True)
 
@@ -743,7 +798,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.canvas.loadShapes(s)
 
-    def saveLabels(self, annotationFilePath):
+    def saveLabels(self, annotationFilePath, type=None):
         annotationFilePath = ustr(annotationFilePath)
         if self.labelFile is None:
             self.labelFile = LabelFile()
@@ -767,7 +822,11 @@ class MainWindow(QMainWindow, WindowMixin):
         shapes = [format_shape(shape) for shape in self.canvas.shapes]
         # Can add differrent annotation formats here
         try:
-            if self.usingPascalVocFormat is True:
+            if type is not None:
+                if type == YOLO_V2:
+                    self.labelFile.saveYoloFormat((annotationFilePath, shapes, self.filePath, self.imageData)
+
+            elif self.usingPascalVocFormat is True:
                 print ('Img: ' + self.filePath + ' -> Its xml: ' + annotationFilePath)
                 self.labelFile.savePascalVocFormat(annotationFilePath, shapes, self.filePath, self.imageData,
                                                    self.lineColor.getRgb(), self.fillColor.getRgb())
@@ -1072,6 +1131,7 @@ class MainWindow(QMainWindow, WindowMixin):
         dirpath = ustr(QFileDialog.getExistingDirectory(self,
                                                      '%s - Open Directory' % __appname__, path,  QFileDialog.ShowDirsOnly
                                                      | QFileDialog.DontResolveSymlinks))
+        self.rootDir = os.path.dirname(dirpath)
 
         if dirpath is not None and len(dirpath) > 1:
             self.lastOpenDir = dirpath
@@ -1187,6 +1247,11 @@ class MainWindow(QMainWindow, WindowMixin):
         if dlg.exec_():
             return dlg.selectedFiles()[0]
         return ''
+    def _saveFileYolo(self, annotationFilePath):
+        if annotationFilePath and self.saveLabels(annotationFilePath):
+            self.setClean()
+            self.statusBar().showMessage('Saved to  %s' % annotationFilePath)
+            self.statusBar().show()
 
     def _saveFile(self, annotationFilePath):
         if annotationFilePath and self.saveLabels(annotationFilePath):
