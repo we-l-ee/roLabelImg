@@ -49,6 +49,7 @@ __appname__ = 'labelImg'
 # Utility functions and classes.
 
 
+
 def have_qstring():
     '''p3/qt5 get rid of QString wrapper as py3 has native unicode str type'''
     return not (sys.version_info.major >= 3 or QT_VERSION_STR.startswith('5.'))
@@ -106,8 +107,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.labelHist = []
         self.lastOpenDir = None
         
-        # Root dir for images and annotations folders.
+        ## Root dir for images and annotations folders.
         self.rootDir = None
+
+
+
+
 
         # Whether we need to save or not.
         self.dirty = False
@@ -147,7 +152,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.labelYoloPath = QLineEdit()
         self.labelYoloPath.setText(u"labels")
         self.saveLabelYolo = QPushButton("Save Yolo", self)
-        self.saveLabelYolo.setEnabled(True)
+        self.saveLabelYolo.setEnabled(False)
         self.saveLabelYolo.clicked.connect(self.saveFileYolo)
 
         # self.saveLabelYolo.addAction()
@@ -411,7 +416,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
-            open, opendir, openNextImg, openPrevImg, verify, save, None, create, createRo, copy, delete, None,
+            open, opendir, openNextImg, openPrevImg, verify, save, saveYolo, None, create, createRo, copy, delete, None,
             zoomIn, zoom, zoomOut, fitWindow, fitWidth)
 
         self.actions.advanced = (
@@ -517,13 +522,23 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def saveFileYolo(self):
         if self.rootDir is not None:
+
             imgFileName = os.path.basename(self.filePath)
             savedFileName = os.path.splitext(imgFileName)[0] + ".txt"
-            savedPath = os.path.join(self.rootDir, str(self.labelYoloPath.text()), savedFileName)
-            # self._saveFile(savedPath)
+
+            saveDir = os.path.join(self.rootDir, str(self.labelYoloPath.text()))
+            if not os.path.exists(saveDir):
+                os.makedirs(saveDir)
+
+            savedPath = os.path.join(saveDir, savedFileName)
+            self._saveFile(savedPath, _type=YOLO_V2)
             print savedPath
         else:
             print "error: open dir."
+
+    def loadFileYolo(self):
+        pass
+
 
     def noShapes(self):
         return not self.itemsToShapes
@@ -798,10 +813,11 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.canvas.loadShapes(s)
 
-    def saveLabels(self, annotationFilePath, type=None):
+    def saveLabels(self, annotationFilePath, _type=None):
         annotationFilePath = ustr(annotationFilePath)
         if self.labelFile is None:
-            self.labelFile = LabelFile()
+
+            self.labelFile = LabelFile(labels= self.labels)
             self.labelFile.verified = self.canvas.verified
 
         def format_shape(s):
@@ -822,9 +838,9 @@ class MainWindow(QMainWindow, WindowMixin):
         shapes = [format_shape(shape) for shape in self.canvas.shapes]
         # Can add differrent annotation formats here
         try:
-            if type is not None:
-                if type == YOLO_V2:
-                    self.labelFile.saveYoloFormat((annotationFilePath, shapes, self.filePath, self.imageData)
+            if _type is not None:
+                if _type == YOLO_V2:
+                    self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData)
 
             elif self.usingPascalVocFormat is True:
                 print ('Img: ' + self.filePath + ' -> Its xml: ' + annotationFilePath)
@@ -1247,14 +1263,15 @@ class MainWindow(QMainWindow, WindowMixin):
         if dlg.exec_():
             return dlg.selectedFiles()[0]
         return ''
-    def _saveFileYolo(self, annotationFilePath):
-        if annotationFilePath and self.saveLabels(annotationFilePath):
-            self.setClean()
-            self.statusBar().showMessage('Saved to  %s' % annotationFilePath)
-            self.statusBar().show()
 
-    def _saveFile(self, annotationFilePath):
-        if annotationFilePath and self.saveLabels(annotationFilePath):
+    # def _saveFileYolo(self, annotationFilePath):
+    #     if annotationFilePath and self.saveLabels(annotationFilePath):
+    #         self.setClean()
+    #         self.statusBar().showMessage('Saved to  %s' % annotationFilePath)
+    #         self.statusBar().show()
+
+    def _saveFile(self, annotationFilePath, _type=None):
+        if annotationFilePath and self.saveLabels(annotationFilePath, _type=_type):
             self.setClean()
             self.statusBar().showMessage('Saved to  %s' % annotationFilePath)
             self.statusBar().show()
@@ -1337,12 +1354,19 @@ class MainWindow(QMainWindow, WindowMixin):
     def loadPredefinedClasses(self, predefClassesFile):
         if os.path.exists(predefClassesFile) is True:
             with codecs.open(predefClassesFile, 'r', 'utf8') as f:
-                for line in f:
+                print("loadPredefinedClasses")
+                self.labels = dict()
+                self.labelHist = []
+                for i, line in enumerate(f.readlines()):
                     line = line.strip()
+                    self.labels[str(line)] = i
+
                     if self.labelHist is None:
-                        self.lablHist = [line]
+                        self.labelHist = [line]
                     else:
                         self.labelHist.append(line)
+        else:
+            print "error: no class file."
 
     def loadPascalXMLByFilename(self, xmlPath):
         if self.filePath is None:
@@ -1414,7 +1438,7 @@ def get_main_app(argv=[]):
     # Tzutalin 201705+: Accept extra agruments to change predefined class file
     # Usage : labelImg.py image predefClassFile
     win = MainWindow(argv[1] if len(argv) >= 2 else None,
-                     argv[2] if len(argv) >= 3 else os.path.join('data', 'predefined_classes.txt'))
+                     argv[2] if len(argv) >= 3 else 'labels')
     win.show()
     return app, win
 

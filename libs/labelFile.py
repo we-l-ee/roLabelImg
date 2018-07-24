@@ -27,8 +27,7 @@ def yolo_format(class_index, point_1, point_2, width, height):
        + " " + str(y_center) + " " + str(x_width) + " " + str(y_height)
 
 def save_bb(myfile, line):
-    with open(txt_path, 'a') as myfile:
-        myfile.write(line + "\n") # append line
+    myfile.write(line + "\n") # append line
 
 class LabelFile(object):
     # It might be changed as window creates. By default, using XML ext
@@ -43,6 +42,8 @@ class LabelFile(object):
 
         self.labels = labels
 
+        print(self.labels)
+
     def saveYoloFormat(self, annPath, shapes, imagePath, imageData):
         imgFolderPath = os.path.dirname(imagePath)
         imgFolderName = os.path.split(imgFolderPath)[-1]
@@ -52,10 +53,11 @@ class LabelFile(object):
         # Pascal format
         image = QImage()
         image.load(imagePath)
-        imageShape = [image.height(), image.width(),
-                      1 if image.isGrayscale() else 3]
+        # imageShape = [image.height(),,
+        #               1 if image.isGrayscale() else 3]
+
         isRotated_check = None
-        with open(annPath, 'w') as myfile:
+        with open(str(annPath), 'w') as myfile:
             for shape in shapes:
                 points = shape['points']
                 label = shape['label']
@@ -67,16 +69,16 @@ class LabelFile(object):
                     isRotated_check = isRotated
                     
                 assert(isRotated_check == isRotated)
-                
+                pmins, pmaxs = LabelFile.convertPoints2BndBox2(points)
+                print(pmins, pmaxs)
                 # if shape is normal box, save as bounding box 
                 # print('direction is %lf' % direction)
-                bndbox = yolo_format(self.labels[label], points[0], points[1], imageShape[1], imageShape[0])
+                bndbox = yolo_format(self.labels[str(label)], pmins, pmaxs, image.width(), image.height())
                 if not isRotated:
                     save_bb(myfile, bndbox)
                 else: #if shape is rotated box, save as rotated bounding box
                     save_bb(myfile, bndbox + " " + str(direction))
 
-        writer.save(targetFile=filename)
         return
 
     def savePascalVocFormat(self, filename, shapes, imagePath, imageData,
@@ -123,6 +125,31 @@ class LabelFile(object):
     def isLabelFile(filename):
         fileSuffix = os.path.splitext(filename)[1].lower()
         return fileSuffix == LabelFile.suffix
+
+    @staticmethod
+    def convertPoints2BndBox2(points):
+        xmin = float('inf')
+        ymin = float('inf')
+        xmax = float('-inf')
+        ymax = float('-inf')
+        for p in points:
+            x = p[0]
+            y = p[1]
+            xmin = min(x, xmin)
+            ymin = min(y, ymin)
+            xmax = max(x, xmax)
+            ymax = max(y, ymax)
+
+        # Martin Kersner, 2015/11/12
+        # 0-valued coordinates of BB caused an error while
+        # training faster-rcnn object detector.
+        if xmin < 1:
+            xmin = 1
+
+        if ymin < 1:
+            ymin = 1
+
+        return (int(xmin), int(ymin)), (int(xmax), int(ymax))
 
     @staticmethod
     def convertPoints2BndBox(points):
