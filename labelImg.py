@@ -48,7 +48,7 @@ __appname__ = 'labelImg'
 
 # Utility functions and classes.
 
-
+from get_image_size import get_image_size
 
 def have_qstring():
     '''p3/qt5 get rid of QString wrapper as py3 has native unicode str type'''
@@ -89,11 +89,10 @@ class HashableQListWidgetItem(QListWidgetItem):
 
 
 
-
-
-
 class MainWindow(QMainWindow, WindowMixin):
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = list(range(3))
+    def __disable(self):
+        self.button_KerasYOLOv3.setEnabled(False)
 
     def __init__(self, defaultFilename=None, defaultPrefdefClassFile=None):
         super(MainWindow, self).__init__()
@@ -111,7 +110,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.rootDir = None
 
 
-
+        # Load predefined classes to the list
+        self.loadPredefinedClasses(defaultPrefdefClassFile)
 
 
         # Whether we need to save or not.
@@ -150,17 +150,18 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Custom labels annotation save
         self.labelYoloPath = QLineEdit()
-        self.labelYoloPath.setText(u"labels")
-        self.saveLabelYolo = QPushButton("Save Yolo", self)
-        self.saveLabelYolo.setEnabled(False)
-        self.saveLabelYolo.clicked.connect(self.saveFileYolo)
+        self.labelYoloPath.setText(u"train.txt")
+        self.button_KerasYOLOv3 = QPushButton("Keras YOLOv3", self)
+        self.button_KerasYOLOv3.setEnabled(True)
+
+        self.button_KerasYOLOv3.clicked.connect(self.saveFileYolo)
 
         # self.saveLabelYolo.addAction()
         # self.saveLabelYolo.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
         LabelPathQHBoxLayout = QHBoxLayout()
         LabelPathQHBoxLayout.addWidget(self.labelYoloPath)
-        LabelPathQHBoxLayout.addWidget(self.saveLabelYolo)
+        LabelPathQHBoxLayout.addWidget(self.button_KerasYOLOv3)
 
         labelPathContainer = QWidget()
         labelPathContainer.setLayout(LabelPathQHBoxLayout)
@@ -439,8 +440,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Add Chris
         self.difficult = False
 
-        # Load predefined classes to the list
-        self.loadPredefinedClasses(defaultPrefdefClassFile)
+
         # XXX: Could be completely declarative.
         # Restore application settings.
         if have_qstring():
@@ -523,22 +523,50 @@ class MainWindow(QMainWindow, WindowMixin):
     def saveFileYolo(self):
         if self.rootDir is not None:
 
-            imgFileName = os.path.basename(self.filePath)
-            savedFileName = os.path.splitext(imgFileName)[0] + ".txt"
+            save_path = os.path.join(self.rootDir, str(self.labelYoloPath.text()))
+            save_dir = os.path.split(save_path)[0]
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
 
-            saveDir = os.path.join(self.rootDir, str(self.labelYoloPath.text()))
-            if not os.path.exists(saveDir):
-                os.makedirs(saveDir)
+            with open(save_path, 'w') as fout:
+                for image in self.mImgList:
 
-            savedPath = os.path.join(saveDir, savedFileName)
-            self._saveFile(savedPath, _type=YOLO_V2)
-            print savedPath
+                    try:
+                        with open(os.path.splitext(image)[0], 'r') as fin:
+                            iw, ih = get_image_size(image)
+                            out_line = image + " "
+                            for line in fin.readlines():
+                                line.strip()
+                                toks = line.split()
+                                cx,cy, w, h = iw*float(toks[1]), ih*float(toks[2]), iw*float(toks[3])/2.0, ih*float(toks[4])/2.0
+
+                                out_line += str(int(cx - w)) + ","+ str(int(cy - h)) + "," + str(int(cx + w)) + "," + str(int(cy + h)) + "," + \
+                                           toks[5] + "," + toks[0] + " "
+
+                                # out_line += str(int(cx)) + ","+ str(int(cy)) + "," + str(int(2*w)) + "," + str(int(2*h)) + "," + \
+                                #            toks[5] + "," + toks[0] + " "
+                            if len(image) + 1 == len(out_line):
+                                continue
+                            fout.write(out_line[:-1] + "\n")
+                    except: pass
+
+            print "done writing yolo train file"
+
+        else:
+            print "error: no root dir."
+
+        import time
+        time.sleep(3)
+
+        # self.button_KerasYOLOv3.setEnabled(True)
+
+    def loadAnnotatations(self):
+        ann_path = os.path.splitext(self.filePath)[0]
+        if self.filePath and os.path.isfile(ann_path):
+            shapes = self.labelFile.readAll_bbox(ann_path, self.width, self.height)
+            self.loadLabels(shapes)
         else:
             print "error: open dir."
-
-    def loadFileYolo(self):
-        pass
-
 
     def noShapes(self):
         return not self.itemsToShapes
@@ -583,17 +611,17 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.verified = False
         self.actions.save.setEnabled(True)
 
-        self.actions.saveYolo.setEnabled(True)
+        # self.actions.saveYolo.setEnabled(True)
 
-        self.saveLabelYolo.setEnabled(True)
+        # self.saveLabelYolo.setEnabled(True)
 
     def setClean(self):
         self.dirty = False
         self.actions.save.setEnabled(False)
 
-        self.actions.saveYolo.setEnabled(False)
+        # self.actions.saveYolo.setEnabled(False)
 
-        self.saveLabelYolo.setEnabled(False)
+        # self.saveLabelYolo.setEnabled(False)
 
         self.actions.create.setEnabled(True)
         self.actions.createRo.setEnabled(True)
@@ -627,7 +655,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.labelList.clear()
         self.filePath = None
         self.imageData = None
-        self.labelFile = None
+        # self.labelFile = None
         self.canvas.resetState()
 
     def currentItem(self):
@@ -842,13 +870,13 @@ class MainWindow(QMainWindow, WindowMixin):
                 if _type == YOLO_V2:
                     self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData)
 
-            elif self.usingPascalVocFormat is True:
-                print ('Img: ' + self.filePath + ' -> Its xml: ' + annotationFilePath)
-                self.labelFile.savePascalVocFormat(annotationFilePath, shapes, self.filePath, self.imageData,
-                                                   self.lineColor.getRgb(), self.fillColor.getRgb())
+            # elif self.usingPascalVocFormat is True:
+            #     print ('Img: ' + self.filePath + ' -> Its xml: ' + annotationFilePath)
+            #     self.labelFile.savePascalVocFormat(annotationFilePath, shapes, self.filePath, self.imageData,
+            #                                        self.lineColor.getRgb(), self.fillColor.getRgb())
             else:
-                self.labelFile.save(annotationFilePath, shapes, self.filePath, self.imageData,
-                                    self.lineColor.getRgb(), self.fillColor.getRgb())
+                self.labelFile.saveAll_bbox(annotationFilePath, shapes, self.width, self.height)
+
             return True
         except LabelFileError as e:
             self.errorMessage(u'Error saving label data',
@@ -963,42 +991,38 @@ class MainWindow(QMainWindow, WindowMixin):
             fileWidgetItem.setSelected(True)
 
         if unicodeFilePath and os.path.exists(unicodeFilePath):
-            if LabelFile.isLabelFile(unicodeFilePath):
-                try:
-                    self.labelFile = LabelFile(unicodeFilePath)
-                except LabelFileError as e:
-                    self.errorMessage(u'Error opening file',
-                                      (u"<p><b>%s</b></p>"
-                                       u"<p>Make sure <i>%s</i> is a valid label file.")
-                                      % (e, unicodeFilePath))
-                    self.status("Error reading %s" % unicodeFilePath)
-                    return False
-                self.imageData = self.labelFile.imageData
-                self.lineColor = QColor(*self.labelFile.lineColor)
-                self.fillColor = QColor(*self.labelFile.fillColor)
-            else:
-                # Load image:
-                # read data first and store for saving into label file.
-                self.imageData = read(unicodeFilePath, None)
-                self.labelFile = None
+
+            # Load image:
+            # read data first and store for saving into label file.
+            self.imageData = read(unicodeFilePath, None)
+            # self.labelFile = None
             image = QImage.fromData(self.imageData)
+
             if image.isNull():
                 self.errorMessage(u'Error opening file',
                                   u"<p>Make sure <i>%s</i> is a valid image file." % unicodeFilePath)
                 self.status("Error reading %s" % unicodeFilePath)
                 return False
             self.status("Loaded %s" % os.path.basename(unicodeFilePath))
+
+            self.width = image.width(); self.height = image.height()
+
+            self.currentImageName = os.path.splitext(os.path.basename(str(unicodeFilePath)))[0]
+
+
             self.image = image
             self.filePath = unicodeFilePath
             self.canvas.loadPixmap(QPixmap.fromImage(image))
-            if self.labelFile:
-                self.loadLabels(self.labelFile.shapes)
+            # if self.labelFile:
+            #     self.loadLabels(self.labelFile.shapes)
             self.setClean()
             self.canvas.setEnabled(True)
             self.adjustScale(initial=True)
             self.paintCanvas()
             self.addRecentFile(self.filePath)
             self.toggleActions(True)
+
+
 
             # Label xml file and show bound box according to its filename
             if self.usingPascalVocFormat is True:
@@ -1020,6 +1044,9 @@ class MainWindow(QMainWindow, WindowMixin):
                 # self.labelList.setItemSelected(self.labelList.item(self.labelList.count()-1), True)
 
             self.canvas.setFocus(True)
+
+            self.loadAnnotatations()
+
             return True
         return False
 
@@ -1232,7 +1259,11 @@ class MainWindow(QMainWindow, WindowMixin):
             self.loadFile(filename)
 
     def saveFile(self, _value=False):
-        if self.defaultSaveDir is not None and len(ustr(self.defaultSaveDir)):
+        if self.lastOpenDir is not None:
+            if self.filePath:
+                self._saveFile(os.path.splitext(self.filePath)[0])
+
+        elif self.defaultSaveDir is not None and len(ustr(self.defaultSaveDir)):
             if self.filePath:
                 imgFileName = os.path.basename(self.filePath)
                 savedFileName = os.path.splitext(imgFileName)[0] + XML_EXT
@@ -1365,6 +1396,9 @@ class MainWindow(QMainWindow, WindowMixin):
                         self.labelHist = [line]
                     else:
                         self.labelHist.append(line)
+
+            self.labelFile = LabelFile(labels=self.labels)
+
         else:
             print "error: no class file."
 
