@@ -94,7 +94,7 @@ class MainWindow(QMainWindow, WindowMixin):
     def __disable(self):
         self.button_KerasYOLOv3.setEnabled(False)
 
-    def __init__(self, defaultFilename=None, defaultPrefdefClassFile=None):
+    def __init__(self, defaultFilename=None, defaultPrefdefClassFile='labels'):
         super(MainWindow, self).__init__()
         self.setWindowTitle(__appname__)
         # Save as Pascal voc xml
@@ -1383,24 +1383,23 @@ class MainWindow(QMainWindow, WindowMixin):
         self.setDirty()
 
     def loadPredefinedClasses(self, predefClassesFile):
-        if os.path.exists(predefClassesFile) is True:
-            with codecs.open(predefClassesFile, 'r', 'utf8') as f:
-                print("loadPredefinedClasses")
-                self.labels = dict()
-                self.labelHist = []
-                for i, line in enumerate(f.readlines()):
-                    line = line.strip()
-                    self.labels[str(line)] = i
+        assert os.path.exists(predefClassesFile), 'Labels file must be provided.'
+        with codecs.open(predefClassesFile, 'r', 'utf8') as f:
+            print("loadPredefinedClasses")
+            self.labels = dict()
+            self.labelHist = []
+            for i, line in enumerate(f.readlines()):
+                line = line.strip()
+                self.labels[str(line)] = i
 
-                    if self.labelHist is None:
-                        self.labelHist = [line]
-                    else:
-                        self.labelHist.append(line)
+                if self.labelHist is None:
+                    self.labelHist = [line]
+                else:
+                    self.labelHist.append(line)
 
-            self.labelFile = LabelFile(labels=self.labels)
+        self.labelFile = LabelFile(labels=self.labels)
 
-        else:
-            print "error: no class file."
+
 
     def loadPascalXMLByFilename(self, xmlPath):
         if self.filePath is None:
